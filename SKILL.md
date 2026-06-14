@@ -45,7 +45,6 @@ python scripts/extract.py --json --model turbo --device cuda --compute-type floa
 - Use browser cookies for Douyin if download access needs them.
 - Install Python dependencies from `scripts/requirements.txt`.
 - On GPU machines, prefer `turbo` or `distil-large-v3` with `--device cuda`.
-- On Windows, CUDA 12 and cuDNN 9 libraries must be installed for GPU execution.
-- On Windows, this skill can also use `nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`, and `nvidia-cuda-nvrtc-cu12` from pip if the full CUDA toolkit is not installed.
+- On Windows, CUDA 12 and cuDNN 9 libraries must be installed for GPU execution; if the full CUDA toolkit is not installed, the bundled Windows wheels in `scripts/requirements.txt` can still satisfy `faster-whisper`.
 - If direct Hugging Face access is slow or blocked, pass `--hf-endpoint https://hf-mirror.com`.
 - Ensure `ffmpeg` is available on the system path.

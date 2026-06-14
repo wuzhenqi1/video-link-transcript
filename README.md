@@ -8,6 +8,8 @@
 pip install -r scripts/requirements.txt
 ```
 
+如果你是 Windows GPU 环境，`faster-whisper` 会优先使用系统 CUDA；没有完整 CUDA Toolkit 时，仓库也会通过 `requirements.txt` 安装对应的 NVIDIA 运行时轮子。
+
 ## 用法
 
 ```bash
