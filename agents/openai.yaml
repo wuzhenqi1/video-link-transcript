@@ -1,0 +1,4 @@
+interface:
+  display_name: "视频转文本"
+  short_description: "提取 B站和抖音视频中的字幕、语音并转写为文本结果"
+  default_prompt: "Use $video-text-extractor to extract transcript text from a Bilibili or Douyin video link."

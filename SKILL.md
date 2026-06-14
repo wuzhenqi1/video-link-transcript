@@ -1,0 +1,43 @@
+---
+name: video-text-extractor
+description: Extract text from Bilibili and Douyin video links by using subtitles first and Whisper fallback. Use when the user wants to turn a B站 or 抖音 video URL or share text into transcript text, or needs the bundled extractor script used.
+---
+
+# Video Text Extractor
+
+## Overview
+
+Use this skill to turn B站 or 抖音 links into transcript text.
+
+## Workflow
+
+1. Accept a Bilibili or Douyin share text or URL.
+2. Extract the first supported link if the input is plain share text.
+3. Prefer platform subtitles.
+4. Fall back to downloaded audio plus Whisper ASR.
+5. Return plain text by default, or JSON when requested.
+
+## Usage
+
+Run the bundled script in `scripts/extract.py`.
+
+Common options:
+
+- `--json`: emit structured JSON
+- `--model`: choose Whisper size (`tiny`, `base`, `small`, `medium`, `large-v3`)
+- `--proxy`: set HTTP proxy for network access
+
+Example:
+
+```bash
+python scripts/extract.py "https://www.bilibili.com/video/..."
+python scripts/extract.py --json --model small "https://v.douyin.com/xxxxx/"
+```
+
+## Notes
+
+- Support only Bilibili and Douyin.
+- Prefer subtitles when available for speed and accuracy.
+- Use browser cookies for Douyin if download access needs them.
+- Install Python dependencies from `scripts/requirements.txt`.
+- Ensure `ffmpeg` is available on the system path.
