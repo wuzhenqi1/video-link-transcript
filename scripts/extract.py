@@ -16,12 +16,18 @@ import re
 import subprocess
 import sys
 import tempfile
+import site
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
 # ── 全局代理设置 ──
 PROXY: Optional[str] = None
+DEFAULT_DEVICE = "auto"
+DEFAULT_COMPUTE_TYPE = "auto"
+DEFAULT_BEAM_SIZE = 5
+DEFAULT_BATCH_SIZE = 1
+DEFAULT_HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "").strip()
 
 
 def _proxy_env() -> dict:
@@ -36,6 +42,46 @@ def _env_with_proxy() -> dict:
     env = os.environ.copy()
     env.update(_proxy_env())
     return env
+
+
+def _configure_windows_cuda_dll_path() -> None:
+    """在 Windows 上把 pip 安装的 NVIDIA DLL 目录加入搜索路径"""
+    if os.name != "nt":
+        return
+
+    dll_dirs = []
+    candidate_roots = []
+    try:
+        candidate_roots.extend(site.getsitepackages())
+    except Exception:
+        pass
+    user_site = site.getusersitepackages()
+    if user_site:
+        candidate_roots.append(user_site)
+
+    for root in candidate_roots:
+        nvidia_root = Path(root) / "nvidia"
+        for subdir in ("cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"):
+            bin_dir = nvidia_root / subdir / "bin"
+            if bin_dir.exists():
+                dll_dirs.append(str(bin_dir))
+
+    for dll_dir in dll_dirs:
+        try:
+            os.add_dll_directory(dll_dir)
+        except (AttributeError, FileNotFoundError):
+            pass
+
+    if dll_dirs:
+        existing_path = os.environ.get("PATH", "")
+        prefix = os.pathsep.join(dll_dirs)
+        os.environ["PATH"] = prefix + os.pathsep + existing_path if existing_path else prefix
+
+
+def _configure_hf_endpoint() -> None:
+    if DEFAULT_HF_ENDPOINT:
+        os.environ["HF_ENDPOINT"] = DEFAULT_HF_ENDPOINT
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 
 # ── 平台检测 ──
@@ -54,7 +100,7 @@ def detect_platform(url: str) -> str:
 def extract_url(text: str) -> str:
     """从任意文本中自动提取第一个支持的视频链接（B站/抖音）"""
     patterns = [
-        r"https?://v\.douyin\.com/[a-zA-Z0-9]+/?",
+        r"https?://v\.douyin\.com/[a-zA-Z0-9_-]+/?",
         r"https?://www\.douyin\.com/[^\s]+",
         r"https?://www\.iesdouyin\.com/[^\s]+",
         r"https?://www\.bilibili\.com/video/BV[a-zA-Z0-9]{10}[^\s]*",
@@ -313,25 +359,59 @@ def _download_and_transcribe(url: str) -> dict:
     return result
 
 
+def _resolve_devices(device: str) -> list[str]:
+    if device == "auto":
+        return ["cuda", "cpu"] if _has_cuda() else ["cpu"]
+    return [device]
+
+
+def _resolve_compute_type(device: str, compute_type: str) -> str:
+    if compute_type != "auto":
+        return compute_type
+    if device == "cuda":
+        return "float16"
+    return "int8"
+
+
 def _whisper_transcribe(audio_path: str, model_size: str = "medium") -> str:
     """Whisper 语音识别（优先 faster-whisper）"""
     try:
-        from faster_whisper import WhisperModel
+        _configure_windows_cuda_dll_path()
+        _configure_hf_endpoint()
+        from faster_whisper import BatchedInferencePipeline, WhisperModel
 
-        device = "cuda" if _has_cuda() else "cpu"
-        compute_type = "float16" if device == "cuda" else "int8"
+        last_error = None
+        for device in _resolve_devices(DEFAULT_DEVICE):
+            compute_type = _resolve_compute_type(device, DEFAULT_COMPUTE_TYPE)
+            try:
+                print(f"  📦 加载 Whisper 模型 ({model_size}, {device})...", file=sys.stderr)
+                model = WhisperModel(model_size, device=device, compute_type=compute_type)
+                transcriber = model
+                transcribe_kwargs = {
+                    "language": "zh",
+                    "beam_size": DEFAULT_BEAM_SIZE,
+                }
+                if DEFAULT_BATCH_SIZE > 1:
+                    transcriber = BatchedInferencePipeline(model=model)
+                    transcribe_kwargs["batch_size"] = DEFAULT_BATCH_SIZE
+                segments, info = transcriber.transcribe(audio_path, **transcribe_kwargs)
 
-        print(f"  📦 加载 Whisper 模型 ({model_size}, {device})...", file=sys.stderr)
-        model = WhisperModel(model_size, device=device, compute_type=compute_type)
-        segments, info = model.transcribe(audio_path, language="zh", beam_size=5)
+                print(
+                    f"  📝 检测语言: {info.language} (概率: {info.language_probability:.2%})",
+                    file=sys.stderr,
+                )
 
-        print(
-            f"  📝 检测语言: {info.language} (概率: {info.language_probability:.2%})",
-            file=sys.stderr,
-        )
+                lines = [seg.text.strip() for seg in segments]
+                return "\n".join(lines)
+            except RuntimeError as exc:
+                last_error = exc
+                if device == "cuda" and DEFAULT_DEVICE == "auto":
+                    print("  ⚠️ CUDA 不可用，回退到 CPU 转写...", file=sys.stderr)
+                    continue
+                raise
 
-        lines = [seg.text.strip() for seg in segments]
-        return "\n".join(lines)
+        if last_error:
+            raise last_error
 
     except ImportError:
         import whisper
@@ -366,7 +446,15 @@ EXTRACTORS = {
 }
 
 
-def extract(url: str, output_json: bool = False, model: str = "medium") -> dict:
+def extract(
+    url: str,
+    output_json: bool = False,
+    model: str = "medium",
+    device: str = "auto",
+    compute_type: str = "auto",
+    beam_size: int = 5,
+    batch_size: int = 1,
+) -> dict:
     """主函数: 输入链接，返回提取结果"""
     platform = detect_platform(url)
     print(f"\U0001f50d 平台: {platform}", file=sys.stderr)
@@ -377,6 +465,16 @@ def extract(url: str, output_json: bool = False, model: str = "medium") -> dict:
     import __main__
 
     original = _whisper_transcribe
+    global DEFAULT_DEVICE, DEFAULT_COMPUTE_TYPE, DEFAULT_BEAM_SIZE, DEFAULT_BATCH_SIZE
+    original_device = DEFAULT_DEVICE
+    original_compute_type = DEFAULT_COMPUTE_TYPE
+    original_beam_size = DEFAULT_BEAM_SIZE
+    original_batch_size = DEFAULT_BATCH_SIZE
+
+    DEFAULT_DEVICE = device
+    DEFAULT_COMPUTE_TYPE = compute_type
+    DEFAULT_BEAM_SIZE = beam_size
+    DEFAULT_BATCH_SIZE = batch_size
 
     def _with_model(path, size=model):
         return original(path, size)
@@ -407,6 +505,10 @@ def extract(url: str, output_json: bool = False, model: str = "medium") -> dict:
         return result
     finally:
         __main__._whisper_transcribe = original
+        DEFAULT_DEVICE = original_device
+        DEFAULT_COMPUTE_TYPE = original_compute_type
+        DEFAULT_BEAM_SIZE = original_beam_size
+        DEFAULT_BATCH_SIZE = original_batch_size
 
 
 def main():
@@ -426,19 +528,59 @@ def main():
     parser.add_argument(
         "--model",
         default="medium",
-        choices=["tiny", "base", "small", "medium", "large-v3"],
+        choices=["tiny", "base", "small", "medium", "large-v3", "turbo"],
         help="Whisper 模型大小 (默认 medium)",
+    )
+    parser.add_argument(
+        "--device",
+        default="auto",
+        choices=["auto", "cpu", "cuda"],
+        help="推理设备 (默认 auto，优先尝试 CUDA)",
+    )
+    parser.add_argument(
+        "--compute-type",
+        default="auto",
+        choices=["auto", "float16", "int8", "int8_float16"],
+        help="推理精度 (默认 auto)",
+    )
+    parser.add_argument(
+        "--beam-size",
+        default=5,
+        type=int,
+        help="解码 beam size，越小越快 (默认 5)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        default=1,
+        type=int,
+        help="批量转写大小，GPU 上可适当调大 (默认 1)",
+    )
+    parser.add_argument(
+        "--hf-endpoint",
+        default="",
+        help="Hugging Face 镜像地址，如 https://hf-mirror.com",
     )
     args = parser.parse_args()
 
     global PROXY
     PROXY = args.proxy
+    global DEFAULT_HF_ENDPOINT
+    if args.hf_endpoint:
+        DEFAULT_HF_ENDPOINT = args.hf_endpoint
 
     raw = args.text
     url = extract_url(raw)
     if url != raw.strip():
         print(f"\U0001f50e 从文本中提取链接: {url}", file=sys.stderr)
-    extract(url, output_json=args.json, model=args.model)
+    extract(
+        url,
+        output_json=args.json,
+        model=args.model,
+        device=args.device,
+        compute_type=args.compute_type,
+        beam_size=args.beam_size,
+        batch_size=args.batch_size,
+    )
 
 
 if __name__ == "__main__":

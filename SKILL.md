@@ -26,12 +26,16 @@ Common options:
 - `--json`: emit structured JSON
 - `--model`: choose Whisper size (`tiny`, `base`, `small`, `medium`, `large-v3`)
 - `--proxy`: set HTTP proxy for network access
+- `--device`: choose `cuda`, `cpu`, or `auto`
+- `--compute-type`: choose `float16`, `int8`, or `int8_float16`
+- `--batch-size`: raise on GPU for higher throughput
+- `--hf-endpoint`: set a Hugging Face mirror such as `https://hf-mirror.com`
 
 Example:
 
 ```bash
 python scripts/extract.py "https://www.bilibili.com/video/..."
-python scripts/extract.py --json --model small "https://v.douyin.com/xxxxx/"
+python scripts/extract.py --json --model turbo --device cuda --compute-type float16 --batch-size 8 --hf-endpoint https://hf-mirror.com "https://v.douyin.com/xxxxx/"
 ```
 
 ## Notes
@@ -40,4 +44,8 @@ python scripts/extract.py --json --model small "https://v.douyin.com/xxxxx/"
 - Prefer subtitles when available for speed and accuracy.
 - Use browser cookies for Douyin if download access needs them.
 - Install Python dependencies from `scripts/requirements.txt`.
+- On GPU machines, prefer `turbo` or `distil-large-v3` with `--device cuda`.
+- On Windows, CUDA 12 and cuDNN 9 libraries must be installed for GPU execution.
+- On Windows, this skill can also use `nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cuda-runtime-cu12`, and `nvidia-cuda-nvrtc-cu12` from pip if the full CUDA toolkit is not installed.
+- If direct Hugging Face access is slow or blocked, pass `--hf-endpoint https://hf-mirror.com`.
 - Ensure `ffmpeg` is available on the system path.
