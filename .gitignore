@@ -1,2 +1,19 @@
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# local output
+output/
+tmp/
+
+# OS/editor
+.DS_Store
+Thumbs.db

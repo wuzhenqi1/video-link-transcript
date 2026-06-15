@@ -3,8 +3,8 @@
 
 用法:
   python extract.py "链接"
-  python extract.py --model tiny "链接"     # 用轻量模型（更快但精度低）
-  python extract.py --json "链接"           # JSON 输出
+  python extract.py --model tiny "链接"
+  python extract.py --json "链接"
 """
 
 from __future__ import annotations
@@ -13,39 +13,35 @@ import argparse
 import json
 import os
 import re
+import site
 import subprocess
 import sys
 import tempfile
-import site
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-# ── 全局代理设置 ──
 PROXY: Optional[str] = None
-DEFAULT_DEVICE = "auto"
-DEFAULT_COMPUTE_TYPE = "auto"
+DEFAULT_DEVICE = "cuda"
+DEFAULT_COMPUTE_TYPE = "float16"
 DEFAULT_BEAM_SIZE = 5
 DEFAULT_BATCH_SIZE = 1
 DEFAULT_HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "").strip()
 
 
 def _proxy_env() -> dict:
-    """返回代理环境变量"""
     if PROXY:
         return {"http_proxy": PROXY, "https_proxy": PROXY, "all_proxy": PROXY}
     return {}
 
 
 def _env_with_proxy() -> dict:
-    """合并系统环境变量 + 代理"""
     env = os.environ.copy()
     env.update(_proxy_env())
     return env
 
 
 def _configure_windows_cuda_dll_path() -> None:
-    """在 Windows 上把 pip 安装的 NVIDIA DLL 目录加入搜索路径"""
     if os.name != "nt":
         return
 
@@ -84,11 +80,7 @@ def _configure_hf_endpoint() -> None:
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 
-# ── 平台检测 ──
-
-
 def detect_platform(url: str) -> str:
-    """根据 URL 返回平台标识"""
     host = (urlparse(url).hostname or "").lower().replace("www.", "")
     if any(k in host for k in ("bilibili.com", "b23.tv")):
         return "bilibili"
@@ -98,7 +90,6 @@ def detect_platform(url: str) -> str:
 
 
 def extract_url(text: str) -> str:
-    """从任意文本中自动提取第一个支持的视频链接（B站/抖音）"""
     patterns = [
         r"https?://v\.douyin\.com/[a-zA-Z0-9_-]+/?",
         r"https?://www\.douyin\.com/[^\s]+",
@@ -106,30 +97,25 @@ def extract_url(text: str) -> str:
         r"https?://www\.bilibili\.com/video/BV[a-zA-Z0-9]{10}[^\s]*",
         r"https?://b23\.tv/[a-zA-Z0-9]+[^\s]*",
     ]
-    for p in patterns:
-        m = re.search(p, text)
-        if m:
-            url = m.group(0).rstrip("\u3002\uff0c\u3001\uff1b\uff1a\uff01\uff1f\uff09\u201d\u2019\uff0e")
-            return url
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(0).rstrip("\u3002\uff0c\u3001\uff1b\uff1a\uff01\uff1f\uff09\u201d\u2019\uff0e")
     return text.strip()
 
 
-# ── B站 ──
-
-
 def extract_bilibili(url: str) -> dict:
-    """B站: 字幕优先 → API → 音频+Whisper"""
     try:
-        r = _yt_dlp_extract(url, prefer_subs=True)
-        if r["text"]:
-            return r
+        result = _yt_dlp_extract(url, prefer_subs=True)
+        if result["text"]:
+            return result
     except Exception:
         pass
 
     try:
-        r = _bilibili_api_extract(url)
-        if r["text"]:
-            return r
+        result = _bilibili_api_extract(url)
+        if result["text"]:
+            return result
     except Exception:
         pass
 
@@ -137,23 +123,22 @@ def extract_bilibili(url: str) -> dict:
 
 
 def _bilibili_api_extract(url: str) -> dict:
-    """通过 B站公开 API 获取字幕和元数据"""
     import requests
 
     result = {"platform": "bilibili", "url": url, "method": "", "text": ""}
 
     bvid_match = re.search(r"BV[a-zA-Z0-9]{10}", url)
-    if not bvid_match:
-        if "b23.tv" in url:
-            resp = requests.get(
-                url,
-                headers={"User-Agent": "Mozilla/5.0"},
-                allow_redirects=False,
-                timeout=10,
-                proxies={"http": PROXY, "https": PROXY} if PROXY else None,
-            )
-            redirected = resp.headers.get("Location", url)
-            bvid_match = re.search(r"BV[a-zA-Z0-9]{10}", redirected)
+    if not bvid_match and "b23.tv" in url:
+        response = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            allow_redirects=False,
+            timeout=10,
+            proxies={"http": PROXY, "https": PROXY} if PROXY else None,
+        )
+        redirected = response.headers.get("Location", url)
+        bvid_match = re.search(r"BV[a-zA-Z0-9]{10}", redirected)
+
     if not bvid_match:
         raise ValueError("无法提取 BVID")
 
@@ -172,7 +157,7 @@ def _bilibili_api_extract(url: str) -> dict:
     data = info_resp["data"]
     result["title"] = data.get("title", "")
     result["description"] = data.get("desc", "")
-    result["tags"] = [t.get("tag_name", "") for t in (data.get("tags") or [])]
+    result["tags"] = [tag.get("tag_name", "") for tag in (data.get("tags") or [])]
 
     cid = data.get("cid")
     if not cid:
@@ -184,9 +169,9 @@ def _bilibili_api_extract(url: str) -> dict:
 
     if subtitle_list:
         sub_json_url = None
-        for sub in subtitle_list:
-            if sub.get("lan_doc", "").startswith("中文"):
-                sub_json_url = sub["subtitle_url"]
+        for subtitle in subtitle_list:
+            if subtitle.get("lan_doc", "").startswith("中文"):
+                sub_json_url = subtitle["subtitle_url"]
                 break
         if not sub_json_url:
             sub_json_url = subtitle_list[0]["subtitle_url"]
@@ -202,19 +187,11 @@ def _bilibili_api_extract(url: str) -> dict:
     return result
 
 
-# ── 抖音 ──
-
-
 def extract_douyin(url: str) -> dict:
-    """抖音: 下载音频 → Whisper ASR"""
     return _download_and_transcribe(url)
 
 
-# ── 通用: yt-dlp 提取 ──
-
-
 def _yt_dlp_extract(url: str, prefer_subs: bool = True) -> dict:
-    """用 yt-dlp 提取字幕文本"""
     result = {"platform": detect_platform(url), "url": url, "method": "", "text": ""}
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -244,14 +221,15 @@ def _yt_dlp_extract(url: str, prefer_subs: bool = True) -> dict:
                 ]
             if PROXY:
                 cmd += ["--proxy", PROXY]
-            url_arg = [url]
+
             try:
                 subprocess.run(
-                    cmd + url_arg,
+                    cmd + [url],
                     capture_output=True,
                     text=True,
                     timeout=120,
                     check=False,
+                    env=_env_with_proxy(),
                 )
                 sub_files = list(Path(tmpdir).glob("*.srt")) + list(Path(tmpdir).glob("*.vtt"))
                 if sub_files:
@@ -267,9 +245,8 @@ def _yt_dlp_extract(url: str, prefer_subs: bool = True) -> dict:
 
 
 def _parse_subtitle_file(filepath: str) -> str:
-    """解析 SRT/VTT 字幕文件 → 纯文本"""
-    with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
+    with open(filepath, "r", encoding="utf-8") as handle:
+        content = handle.read()
 
     lines = []
     for line in content.split("\n"):
@@ -289,18 +266,14 @@ def _parse_subtitle_file(filepath: str) -> str:
     return "\n".join(lines)
 
 
-# ── 通用: 下载音频 + Whisper ──
-
-
 def _download_and_transcribe(url: str) -> dict:
-    """下载视频音频，用 Whisper 做语音识别"""
     platform = detect_platform(url)
     result = {"platform": platform, "url": url, "method": "whisper_asr", "text": ""}
 
     with tempfile.TemporaryDirectory() as tmpdir:
         audio_path = os.path.join(tmpdir, "audio")
 
-        print("  ⏳ 正在下载音频...", file=sys.stderr)
+        print("  正在下载音频...", file=sys.stderr)
         cmd = [
             sys.executable,
             "-m",
@@ -330,7 +303,12 @@ def _download_and_transcribe(url: str) -> dict:
             cmd += ["--cookies-from-browser", "chrome"]
 
         proc = subprocess.run(
-            cmd + [url], capture_output=True, text=True, timeout=300, check=False
+            cmd + [url],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+            env=_env_with_proxy(),
         )
 
         if proc.returncode != 0:
@@ -350,19 +328,12 @@ def _download_and_transcribe(url: str) -> dict:
 
         audio_file = str(audio_files[0])
         size_mb = os.path.getsize(audio_file) / 1024 / 1024
-        print(f"  ⏳ Whisper 语音识别中... (文件: {size_mb:.1f}MB)", file=sys.stderr)
+        print(f"  Whisper 语音识别中... (文件: {size_mb:.1f}MB)", file=sys.stderr)
 
-        text = _whisper_transcribe(audio_file)
-        result["text"] = text
+        result["text"] = _whisper_transcribe(audio_file)
         result["method"] = "whisper_asr"
 
     return result
-
-
-def _resolve_devices(device: str) -> list[str]:
-    if device == "auto":
-        return ["cuda", "cpu"] if _has_cuda() else ["cpu"]
-    return [device]
 
 
 def _resolve_compute_type(device: str, compute_type: str) -> str:
@@ -373,71 +344,44 @@ def _resolve_compute_type(device: str, compute_type: str) -> str:
     return "int8"
 
 
-def _whisper_transcribe(audio_path: str, model_size: str = "medium") -> str:
-    """Whisper 语音识别（优先 faster-whisper）"""
+def _ensure_cuda() -> None:
     try:
         _configure_windows_cuda_dll_path()
-        _configure_hf_endpoint()
-        from faster_whisper import BatchedInferencePipeline, WhisperModel
-
-        last_error = None
-        for device in _resolve_devices(DEFAULT_DEVICE):
-            compute_type = _resolve_compute_type(device, DEFAULT_COMPUTE_TYPE)
-            try:
-                print(f"  📦 加载 Whisper 模型 ({model_size}, {device})...", file=sys.stderr)
-                model = WhisperModel(model_size, device=device, compute_type=compute_type)
-                transcriber = model
-                transcribe_kwargs = {
-                    "language": "zh",
-                    "beam_size": DEFAULT_BEAM_SIZE,
-                }
-                if DEFAULT_BATCH_SIZE > 1:
-                    transcriber = BatchedInferencePipeline(model=model)
-                    transcribe_kwargs["batch_size"] = DEFAULT_BATCH_SIZE
-                segments, info = transcriber.transcribe(audio_path, **transcribe_kwargs)
-
-                print(
-                    f"  📝 检测语言: {info.language} (概率: {info.language_probability:.2%})",
-                    file=sys.stderr,
-                )
-
-                lines = [seg.text.strip() for seg in segments]
-                return "\n".join(lines)
-            except RuntimeError as exc:
-                last_error = exc
-                if device == "cuda" and DEFAULT_DEVICE == "auto":
-                    print("  ⚠️ CUDA 不可用，回退到 CPU 转写...", file=sys.stderr)
-                    continue
-                raise
-
-        if last_error:
-            raise last_error
-
-    except ImportError:
-        import whisper
-
-        print(f"  📦 加载原版 Whisper ({model_size})...", file=sys.stderr)
-        model = whisper.load_model(model_size)
-        result = model.transcribe(audio_path, language="zh")
-        return result["text"]
-
-
-def _has_cuda() -> bool:
-    """检测 CUDA 是否可用（优先用 ctranslate2，回退 torch）"""
-    try:
         import ctranslate2
 
-        return ctranslate2.get_cuda_device_count() > 0
-    except Exception:
-        try:
-            import torch
-
-            return torch.cuda.is_available()
-        except ImportError:
-            return False
+        if ctranslate2.get_cuda_device_count() <= 0:
+            raise SystemExit("GPU 不可用，任务已退出。")
+    except ImportError as exc:
+        raise SystemExit("缺少 ctranslate2，无法执行 GPU 转写。") from exc
 
 
-# ── 主入口 ──
+def _whisper_transcribe(audio_path: str, model_size: str = "medium") -> str:
+    _ensure_cuda()
+    _configure_hf_endpoint()
+
+    try:
+        from faster_whisper import BatchedInferencePipeline, WhisperModel
+    except ImportError as exc:
+        raise SystemExit("缺少 faster-whisper，无法执行 GPU 转写。") from exc
+
+    compute_type = _resolve_compute_type(DEFAULT_DEVICE, DEFAULT_COMPUTE_TYPE)
+    print(f"  加载 Whisper 模型 ({model_size}, {DEFAULT_DEVICE})...", file=sys.stderr)
+    model = WhisperModel(model_size, device=DEFAULT_DEVICE, compute_type=compute_type)
+    transcriber = model
+    transcribe_kwargs = {
+        "language": "zh",
+        "beam_size": DEFAULT_BEAM_SIZE,
+    }
+    if DEFAULT_BATCH_SIZE > 1:
+        transcriber = BatchedInferencePipeline(model=model)
+        transcribe_kwargs["batch_size"] = DEFAULT_BATCH_SIZE
+    segments, info = transcriber.transcribe(audio_path, **transcribe_kwargs)
+
+    print(
+        f"  检测语言: {info.language} (概率: {info.language_probability:.2%})",
+        file=sys.stderr,
+    )
+    return "\n".join(seg.text.strip() for seg in segments)
 
 
 EXTRACTORS = {
@@ -450,21 +394,17 @@ def extract(
     url: str,
     output_json: bool = False,
     model: str = "medium",
-    device: str = "auto",
-    compute_type: str = "auto",
+    device: str = "cuda",
+    compute_type: str = "float16",
     beam_size: int = 5,
     batch_size: int = 1,
 ) -> dict:
-    """主函数: 输入链接，返回提取结果"""
     platform = detect_platform(url)
-    print(f"\U0001f50d 平台: {platform}", file=sys.stderr)
-    print(f"\U0001f517 链接: {url}", file=sys.stderr)
+    print(f"平台: {platform}", file=sys.stderr)
+    print(f"链接: {url}", file=sys.stderr)
 
     extractor = EXTRACTORS[platform]
 
-    import __main__
-
-    original = _whisper_transcribe
     global DEFAULT_DEVICE, DEFAULT_COMPUTE_TYPE, DEFAULT_BEAM_SIZE, DEFAULT_BATCH_SIZE
     original_device = DEFAULT_DEVICE
     original_compute_type = DEFAULT_COMPUTE_TYPE
@@ -476,42 +416,32 @@ def extract(
     DEFAULT_BEAM_SIZE = beam_size
     DEFAULT_BATCH_SIZE = batch_size
 
-    def _with_model(path, size=model):
-        return original(path, size)
-
-    __main__._whisper_transcribe = _with_model
-
     try:
         result = extractor(url)
-
         if output_json:
             print(json.dumps(result, ensure_ascii=False, indent=2))
         else:
             print()
             print("=" * 60)
             if result.get("title"):
-                print(f"\U0001f4cc 标题: {result['title']}")
+                print(f"标题: {result['title']}")
             if result.get("description"):
-                print(f"\U0001f4dd 简介: {result['description'][:200]}")
+                print(f"简介: {result['description'][:200]}")
             if result.get("tags"):
-                print(f"\U0001f3f7\ufe0f  标签: {', '.join(result['tags'][:10])}")
-            print(f"\u2699\ufe0f  提取方式: {result['method']}")
-            if result.get("language"):
-                print(f"\U0001f310 语言: {result['language']}")
+                print(f"标签: {', '.join(result['tags'][:10])}")
+            print(f"提取方式: {result['method']}")
             print("=" * 60)
             print()
             print(result.get("text", result.get("error", "（无内容）")))
-
         return result
     finally:
-        __main__._whisper_transcribe = original
         DEFAULT_DEVICE = original_device
         DEFAULT_COMPUTE_TYPE = original_compute_type
         DEFAULT_BEAM_SIZE = original_beam_size
         DEFAULT_BATCH_SIZE = original_batch_size
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="视频文案提取 —— B站 / 抖音",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -519,7 +449,7 @@ def main():
 示例:
   python extract.py "https://www.bilibili.com/video/BV1xx411c7mD"
   python extract.py "https://v.douyin.com/xxxxx/"
-  python extract.py --json "https://..." > result.json
+  python extract.py --json "https://..."
         """,
     )
     parser.add_argument("text", help="视频链接或抖音/B站分享文本（自动提取链接）")
@@ -533,15 +463,15 @@ def main():
     )
     parser.add_argument(
         "--device",
-        default="auto",
-        choices=["auto", "cpu", "cuda"],
-        help="推理设备 (默认 auto，优先尝试 CUDA)",
+        default="cuda",
+        choices=["cuda"],
+        help="推理设备，仅支持 GPU",
     )
     parser.add_argument(
         "--compute-type",
-        default="auto",
+        default="float16",
         choices=["auto", "float16", "int8", "int8_float16"],
-        help="推理精度 (默认 auto)",
+        help="推理精度 (默认 float16)",
     )
     parser.add_argument(
         "--beam-size",
@@ -562,16 +492,15 @@ def main():
     )
     args = parser.parse_args()
 
-    global PROXY
+    global PROXY, DEFAULT_HF_ENDPOINT
     PROXY = args.proxy
-    global DEFAULT_HF_ENDPOINT
     if args.hf_endpoint:
         DEFAULT_HF_ENDPOINT = args.hf_endpoint
 
     raw = args.text
     url = extract_url(raw)
     if url != raw.strip():
-        print(f"\U0001f50e 从文本中提取链接: {url}", file=sys.stderr)
+        print(f"从文本中提取链接: {url}", file=sys.stderr)
     extract(
         url,
         output_json=args.json,
