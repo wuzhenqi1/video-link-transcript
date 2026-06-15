@@ -4,7 +4,7 @@
 
 GPU-only transcript extraction for Douyin and Bilibili.
 
-Accepts video links, link files, creator pages, Bilibili UIDs, and Douyin handles. Resolves public video URLs and saves simplified-Chinese transcript output as plain `.txt` files under `D:\视频文本\<creator-name>`.
+Accepts video links, link files, creator pages, Bilibili UIDs, and Douyin handles. Resolves public video URLs and saves simplified-Chinese transcript output as plain `.txt` files under the configured output folder.
 
 ## What It Supports
 
@@ -23,7 +23,7 @@ Accepts video links, link files, creator pages, Bilibili UIDs, and Douyin handle
 
 - output is `.txt` only
 - one creator goes into one folder
-- default output root is `D:\视频文本`
+- output root is configurable with `--output-root`
 - transcript text is normalized to simplified Chinese before saving
 - no CSV summaries
 - no JSONL indexes
@@ -57,29 +57,29 @@ Make sure the Python environment includes CUDA-capable `faster-whisper` and `ctr
 ## Usage
 
 ```powershell
-python scripts/batch_extract_transcripts.py "https://www.douyin.com/video/7584379975194643770" --creator "单条测试" --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py "<douyin-video-url>" --creator "creator-a" --device cuda --compute-type float16 --batch-size 8
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py "https://www.douyin.com/video/123" "https://www.bilibili.com/video/BV1xx411c7mD" --creator "混合样本" --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py "<douyin-video-url>" "<bilibili-video-url>" --creator "mixed-sample" --device cuda --compute-type float16 --batch-size 8
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py "D:\峰哥\视频语录自动化工具\PYTA交易实讲-抖音链接.txt" --creator "PYTA交易实讲" --device cuda --compute-type float16 --batch-size 8 --limit 5
+python scripts/batch_extract_transcripts.py ".\\links.txt" --creator "creator-b" --device cuda --compute-type float16 --batch-size 8 --limit 5
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py --creator-id "3493080965581201" --platform bilibili --count 2 --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py --creator-id "<bilibili-uid>" --platform bilibili --count 2 --device cuda --compute-type float16 --batch-size 8
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py --creator-id "HHang02" --platform douyin --count 2 --use-edge-profile --edge-profile-dir Default --show-browser --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py --creator-id "<douyin-handle>" --platform douyin --count 2 --use-edge-profile --edge-profile-dir Default --show-browser --device cuda --compute-type float16 --batch-size 8
 ```
 
 Collect links only:
 
 ```powershell
-python scripts/collect_public_video_urls.py --creator-id "HHang02" --platform douyin --count 20 --use-edge-profile --edge-profile-dir Default --show-browser
+python scripts/collect_public_video_urls.py --creator-id "<douyin-handle>" --platform douyin --count 20 --use-edge-profile --edge-profile-dir Default --show-browser
 ```
 
 ## Notes

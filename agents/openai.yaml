@@ -1,7 +1,7 @@
 interface:
   display_name: "Video Link Transcript"
   short_description: "Batch transcribe Douyin and Bilibili videos into title-based txt files grouped by creator."
-  default_prompt: "Use $video-link-transcript to batch transcribe Douyin or Bilibili links into title-based txt files under D:\\视频文本."
+  default_prompt: "Use $video-link-transcript to batch transcribe Douyin or Bilibili links into title-based txt files under the configured output folder."
 
 policy:
   allow_implicit_invocation: true

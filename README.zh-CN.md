@@ -4,7 +4,7 @@
 
 面向抖音和 B 站的视频转文本 skill。
 
-它支持视频链接、链接清单、创作者主页、B 站 UID、抖音号等入口，先解析出公开视频链接，再把简体中文转写结果按创作者分目录保存到 `D:\视频文本\<创作者名>`。
+它支持视频链接、链接清单、创作者主页、B 站 UID、抖音号等入口，先解析出公开视频链接，再把简体中文转写结果按创作者分目录保存到你指定的输出目录。
 
 ## 功能特点
 
@@ -33,7 +33,7 @@
 
 - 只保存 `.txt`
 - 一个创作者对应一个文件夹
-- 默认输出目录：`D:\视频文本`
+- 输出目录可通过 `--output-root` 指定
 - 保存前统一转成简体中文
 - 不生成 CSV 汇总
 - 不生成 JSONL 索引
@@ -71,29 +71,29 @@ python -m playwright install chromium
 ## 用法
 
 ```powershell
-python scripts/batch_extract_transcripts.py "https://www.douyin.com/video/7584379975194643770" --creator "单条测试" --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py "<抖音视频链接>" --creator "creator-a" --device cuda --compute-type float16 --batch-size 8
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py "https://www.douyin.com/video/123" "https://www.bilibili.com/video/BV1xx411c7mD" --creator "混合样本" --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py "<抖音视频链接>" "<B站视频链接>" --creator "mixed-sample" --device cuda --compute-type float16 --batch-size 8
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py "D:\峰哥\视频语录自动化工具\PYTA交易实讲-抖音链接.txt" --creator "PYTA交易实讲" --device cuda --compute-type float16 --batch-size 8 --limit 5
+python scripts/batch_extract_transcripts.py ".\\links.txt" --creator "creator-b" --device cuda --compute-type float16 --batch-size 8 --limit 5
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py --creator-id "3493080965581201" --platform bilibili --count 2 --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py --creator-id "<B站UID>" --platform bilibili --count 2 --device cuda --compute-type float16 --batch-size 8
 ```
 
 ```powershell
-python scripts/batch_extract_transcripts.py --creator-id "HHang02" --platform douyin --count 2 --use-edge-profile --edge-profile-dir Default --show-browser --device cuda --compute-type float16 --batch-size 8
+python scripts/batch_extract_transcripts.py --creator-id "<抖音号>" --platform douyin --count 2 --use-edge-profile --edge-profile-dir Default --show-browser --device cuda --compute-type float16 --batch-size 8
 ```
 
 只采集链接：
 
 ```powershell
-python scripts/collect_public_video_urls.py --creator-id "HHang02" --platform douyin --count 20 --use-edge-profile --edge-profile-dir Default --show-browser
+python scripts/collect_public_video_urls.py --creator-id "<抖音号>" --platform douyin --count 20 --use-edge-profile --edge-profile-dir Default --show-browser
 ```
 
 ## 说明

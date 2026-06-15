@@ -447,9 +447,8 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python extract.py "https://www.bilibili.com/video/BV1xx411c7mD"
-  python extract.py "https://v.douyin.com/xxxxx/"
-  python extract.py --json "https://..."
+  python extract.py "<video-url>"
+  python extract.py --json "<video-url>"
         """,
     )
     parser.add_argument("text", help="视频链接或抖音/B站分享文本（自动提取链接）")
